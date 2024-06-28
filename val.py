@@ -57,8 +57,20 @@ def process_batch(detections, labels, iouv):
     Returns:
         correct (array[N, 10]), for 10 IoU levels
     """
+    dice_scores = []  # Añadir una lista para los dice scores
     correct = np.zeros((detections.shape[0], iouv.shape[0])).astype(bool)
-    iou = box_iou(labels[:, 1:], detections[:, :4])
+    iou , dice_scores= box_iou(labels[:, 1:], detections[:, :4])
+        # Calcular Dice Score medio
+    mean_dice = np.mean(dice_scores)
+    LOGGER.info(f'Mean Dice Score: {mean_dice:.4f}')
+
+    # Guardar Dice Scores en un archivo
+    dice_scores_path = '/content/dice_scores.txt'
+    with open(dice_scores_path, 'w') as f:
+        for score in dice_scores:
+            f.write(f"{score}\n")
+    LOGGER.info(f'Dice Scores guardados en {dice_scores_path}')
+
     correct_class = labels[:, 0:1] == detections[:, 5]
     for i in range(len(iouv)):
         x = torch.where((iou >= iouv[i]) & correct_class)  # IoU > threshold and classes match
@@ -71,12 +83,6 @@ def process_batch(detections, labels, iouv):
                 matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
             correct[matches[:, 1].astype(int), i] = True
     return torch.tensor(correct, dtype=torch.bool, device=iouv.device)
-
-def dice_score(pred, target, smooth=1e-6):
-    intersection = (pred * target).sum()
-    union = pred.sum() + target.sum()
-    dice = (2. * intersection + smooth) / (union + smooth)
-    return dice
 
 @smart_inference_mode()
 def run(
@@ -178,7 +184,7 @@ def run(
     dt = Profile(), Profile(), Profile()  # tiempos de perfil
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
-    dice_scores = []  # Añadir una lista para los dice scores
+  
     callbacks.run('on_val_start')
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # barra de progreso
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
@@ -242,12 +248,6 @@ def run(
                     confusion_matrix.process_batch(predn, labelsn)
             stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
 
-            # Cálculo del Dice Score
-            pred_bin = (pred[:, 4] > conf_thres).float()  # binarizar predicciones basadas en conf
-            target_bin = torch.zeros_like(pred_bin)
-            target_bin[:len(labels)] = 1.0  # etiquetas binarizadas
-            dice = dice_score(pred_bin, target_bin)
-            dice_scores.append(dice.item())
 
             # Guardar/log
             if save_txt:
@@ -270,17 +270,6 @@ def run(
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
     nt = np.bincount(stats[3].astype(int), minlength=nc)  # número de objetivos por clase
-
-    # Calcular Dice Score medio
-    mean_dice = np.mean(dice_scores)
-    LOGGER.info(f'Mean Dice Score: {mean_dice:.4f}')
-
-    # Guardar Dice Scores en un archivo
-    dice_scores_path = save_dir / 'dice_scores.txt'
-    with open(dice_scores_path, 'w') as f:
-        for score in dice_scores:
-            f.write(f"{score}\n")
-    LOGGER.info(f'Dice Scores guardados en {dice_scores_path}')
 
     # Imprimir resultados
     pf = '%22s' + '%11i' * 2 + '%11.3g' * 4  # formato de impresión
