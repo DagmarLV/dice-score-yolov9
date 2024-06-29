@@ -315,10 +315,7 @@ def box_iou(box1, box2, eps=1e-7):
     inter = (torch.min(a2, b2) - torch.max(a1, b1)).clamp(0).prod(2)
 
     # IoU = inter / (area1 + area2 - inter)
-    iou = inter / ((a2 - a1).prod(2) + (b2 - b1).prod(2) - inter + eps)
-    dice_score = (2 * inter + eps) / ((a2 - a1).prod(2) + (b2 - b1).prod(2) + eps)
-
-    return iou, dice_score
+    return inter / ((a2 - a1).prod(2) + (b2 - b1).prod(2) - inter + eps)
 
 
 def bbox_ioa(box1, box2, eps=1e-7):
